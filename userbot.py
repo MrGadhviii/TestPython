@@ -1,4 +1,5 @@
 import os
+import re
 import asyncio
 from telethon import TelegramClient, events
 
@@ -7,57 +8,77 @@ API_ID = 24808705
 API_HASH = 'adf3a113ab32bb2792338477f156dc86'
 BOT_TOKEN = '8015052876:AAEi65xgC7XzKRcn9hKGBY48wDlFrUDQuUY'  # Replace with your bot token
 
-# Session name for storing login session (not needed for bot)
-session_file = 'owner_session'
-
 # Create the Telegram client for the bot
-client = TelegramClient(session_file, API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+client = TelegramClient('owner_session', API_ID, API_HASH)
 
-# Variable to track if the owner is online
+# Variable to track if the owner is online and login state
 is_online = False
-login_state = False  # To track if login process is ongoing
+is_logged_in = False
 
 async def send_message(chat_id, message):
     """ Helper function to send a message. """
     await client.send_message(chat_id, message)
 
+def is_valid_phone_number(phone_number):
+    """ Validate phone number format (simple validation). """
+    pattern = r'^\+\d{10,15}$'  # Example pattern for international format
+    return re.match(pattern, phone_number) is not None
+
 async def prompt_for_phone_number(event):
     """ Prompt for phone number and handle response. """
-    await send_message(event.chat_id, "Please enter your phone number:")
-    
+    await send_message(event.chat_id, "Please enter your phone number (in format +1234567890):")
+
     @client.on(events.NewMessage(incoming=True, from_users=event.sender_id))
     async def handle_phone_number_response(phone_event):
-        global login_state
+        global is_logged_in
         phone_number = phone_event.raw_text.strip()
-        await send_message(event.chat_id, "Please enter the OTP sent to your Telegram app:")
-        login_state = True  # Mark login process as ongoing
 
-        @client.on(events.NewMessage(incoming=True, from_users=event.sender_id))
-        async def handle_otp_response(otp_event):
-            if login_state:
-                otp = otp_event.raw_text.strip()
-                await handle_login(phone_number, otp, event.chat_id)
-                login_state = False  # Reset login state
+        if is_valid_phone_number(phone_number):
+            await send_message(event.chat_id, "Please enter the OTP sent to your phone:")
+            is_logged_in = True  # Mark login process as ongoing
+
+            @client.on(events.NewMessage(incoming=True, from_users=event.sender_id))
+            async def handle_otp_response(otp_event):
+                if is_logged_in:
+                    otp = otp_event.raw_text.strip()
+                    await handle_login(phone_number, otp, event.chat_id)
+                    is_logged_in = False  # Reset login state
+
+        else:
+            await send_message(event.chat_id, "Invalid phone number format. Please try again.")
+            await prompt_for_phone_number(event)
 
 async def handle_login(phone_number, otp, chat_id):
     """ Handle the login process. """
-    # Start the client with the phone number
     await client.start(phone=phone_number)
 
-    if not await client.is_user_authorized():
-        await client.sign_in(phone=phone_number, code=otp)
+    try:
+        if not await client.is_user_authorized():
+            await client.sign_in(phone=phone_number, code=otp)
 
-    await send_message(chat_id, "Logged in successfully.")
+        await send_message(chat_id, "Logged in successfully.")
 
-    # Access the owner's profile
-    me = await client.get_me()
-    await send_message(chat_id, f"Owner's Profile: {me.stringify()}")
+        # Access the owner's profile
+        me = await client.get_me()
+        await send_message(chat_id, f"Owner's Profile: {me.stringify()}")
+    except Exception as e:
+        await send_message(chat_id, f"Error logging in: {str(e)}")
 
 @client.on(events.NewMessage(incoming=True))
 async def handle_commands(event):
     """ Handle commands from the owner. """
+    global is_logged_in
     if event.raw_text.startswith('/start'):
         await prompt_for_phone_number(event)
+    elif event.raw_text.startswith('/logout') and is_logged_in:
+        await client.log_out()  # Log out the user
+        is_logged_in = False
+        await send_message(event.chat_id, "You have been logged out.")
+    elif event.raw_text.startswith('/status'):
+        if is_logged_in:
+            await send_message(event.chat_id, "You are currently logged in.")
+        else:
+            await send_message(event.chat_id, "You are not logged in.")
 
     # Event to handle incoming private messages
     @client.on(events.NewMessage(incoming=True))
