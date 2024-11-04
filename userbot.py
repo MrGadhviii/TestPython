@@ -1,106 +1,92 @@
 import os
 import asyncio
 from telethon import TelegramClient, events
+from telethon.errors import SessionPasswordNeededError, PhoneCodeInvalidError
 
-# Replace with your actual API ID and API Hash
+# Replace with actual API credentials
 API_ID = 24808705
 API_HASH = 'adf3a113ab32bb2792338477f156dc86'
-BOT_TOKEN = '8015052876:AAEi65xgC7XzKRcn9hKGBY48wDlFrUDQuUY'  # Replace with your bot token
+BOT_TOKEN = '8015052876:AAEi65xgC7XzKRcn9hKGBY48wDlFrUDQuUY'
 
-# Session name for storing login session (not needed for bot)
-session_file = 'owner_session'
+# Session file for storing the real account login
+owner_session = 'owner_session'
 
-# Create the Telegram client for the bot
-client = TelegramClient(session_file, API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+# Initialize bot client
+bot = TelegramClient('bot_session', API_ID, API_HASH).start(bot_token=BOT_TOKEN)
+owner_client = TelegramClient(owner_session, API_ID, API_HASH)
 
-# Variable to track if the owner is online
+# Variables to track status
 is_online = False
-login_state = False  # To track if login process is ongoing
+login_state = False  # Tracks if login process is ongoing
 
-async def send_message(chat_id, message):
-    """ Helper function to send a message. """
-    await client.send_message(chat_id, message)
-
-async def prompt_for_phone_number(event):
-    """ Prompt for phone number and handle response. """
-    await send_message(event.chat_id, "Please enter your phone number:")
+async def login_owner(event):
+    """ Starts login for the owner's real account using phone number and OTP. """
+    await event.reply("Please enter your phone number:")
     
-    @client.on(events.NewMessage(incoming=True, from_users=event.sender_id))
-    async def handle_phone_number_response(phone_event):
-        global login_state
-        phone_number = phone_event.raw_text.strip()
-        await send_message(event.chat_id, "Please enter the OTP sent to your Telegram app:")
-        login_state = True  # Mark login process as ongoing
+    @bot.on(events.NewMessage(incoming=True, from_users=event.sender_id))
+    async def handle_phone(event):
+        phone = event.raw_text.strip()
+        
+        try:
+            # Start login with phone number
+            await owner_client.connect()
+            if not await owner_client.is_user_authorized():
+                await owner_client.send_code_request(phone)
+                await event.reply("OTP sent to your Telegram app. Please enter the OTP:")
+                
+                @bot.on(events.NewMessage(incoming=True, from_users=event.sender_id))
+                async def handle_otp(event):
+                    otp = event.raw_text.strip()
+                    
+                    try:
+                        # Complete login with OTP
+                        await owner_client.sign_in(phone, otp)
+                        await event.reply("Logged in successfully.")
+                    except PhoneCodeInvalidError:
+                        await event.reply("Invalid OTP. Please try again.")
+        except SessionPasswordNeededError:
+            await event.reply("Two-step verification is enabled. Please enter your password:")
+            
+            @bot.on(events.NewMessage(incoming=True, from_users=event.sender_id))
+            async def handle_password(event):
+                password = event.raw_text.strip()
+                await owner_client.sign_in(password=password)
+                await event.reply("Logged in with password successfully.")
 
-        @client.on(events.NewMessage(incoming=True, from_users=event.sender_id))
-        async def handle_otp_response(otp_event):
-            if login_state:
-                otp = otp_event.raw_text.strip()
-                await handle_login(phone_number, otp, event.chat_id)
-                login_state = False  # Reset login state
+@bot.on(events.NewMessage)
+async def handle_bot_message(event):
+    """ Main event handler for bot messages, including commands and auto-reply. """
+    global is_online
+    
+    if event.raw_text == '/start':
+        await login_owner(event)
+    elif event.raw_text.strip() == '.hello':
+        recipient = await event.get_chat()
+        username = recipient.first_name if recipient.first_name else "User"
+        
+        # Send personalized message
+        await bot.send_message(recipient.id, f"Hello {username}, how are you?")
+        await bot.delete_messages(event.chat_id, event.id)
+    elif event.is_private:
+        # Auto-reply if owner is offline
+        if not is_online:
+            offline_msg = await event.reply("Owner is offline. See you soon!")
+            await asyncio.sleep(10)
+            await bot.delete_messages(event.chat_id, offline_msg.id)
 
-async def handle_login(phone_number, otp, chat_id):
-    """ Handle the login process. """
-    # Start the client with the phone number
-    await client.start(phone=phone_number)
-
-    if not await client.is_user_authorized():
-        await client.sign_in(phone=phone_number, code=otp)
-
-    await send_message(chat_id, "Logged in successfully.")
-
-    # Access the owner's profile
-    me = await client.get_me()
-    await send_message(chat_id, f"Owner's Profile: {me.stringify()}")
-
-@client.on(events.NewMessage(incoming=True))
-async def handle_commands(event):
-    """ Handle commands from the owner. """
-    if event.raw_text.startswith('/start'):
-        await prompt_for_phone_number(event)
-
-    # Event to handle incoming private messages
-    @client.on(events.NewMessage(incoming=True))
-    async def handle_incoming_message(event):
-        global is_online
-        sender = await event.get_sender()
-
-        # Only handle private messages (not in groups) and non-bot senders
-        if event.is_private and not sender.bot:
-            # Only send auto-reply if owner is offline
-            if not is_online:
-                offline_message = await event.reply("Owner is offline. See you soon!")
-                await asyncio.sleep(10)  # Wait for 10 seconds
-                await client.delete_messages(event.chat_id, offline_message.id)  # Delete offline message
-
-    # Event to monitor the owner's outgoing messages
-    @client.on(events.NewMessage(outgoing=True))
-    async def handle_outgoing_message(event):
-        global is_online
-
-        # Set online status when sending a message
-        is_online = True
-
-        # Check if the outgoing message is the ".hello" command
-        if event.raw_text.strip() == '.hello':
-            # Get the recipient's chat entity
-            recipient = await event.get_chat()
-            username = recipient.first_name if recipient.first_name else "User"
-
-            # Send a personalized message to the user
-            response_message = await client.send_message(recipient.id, f"Hello {username}, how are you?")
-
-            # Delete the ".hello" command message
-            await client.delete_messages(event.chat_id, event.id)
-
-            # Optional: wait a bit before resetting online status
-            await asyncio.sleep(2)
-            is_online = False  # Reset online status
+@owner_client.on(events.NewMessage(outgoing=True))
+async def handle_outgoing_message(event):
+    """ Set online status when owner sends a message. """
+    global is_online
+    is_online = True
+    await asyncio.sleep(2)  # Adjust timing if needed
+    is_online = False
 
 async def main():
-    print("Bot is running and listening for messages...")
-    await client.run_until_disconnected()  # Run the main function
+    print("Bot is running. Waiting for messages...")
+    await bot.run_until_disconnected()
 
 # Run the main function
 loop = asyncio.get_event_loop()
 loop.run_until_complete(main())
+    
