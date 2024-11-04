@@ -1,13 +1,11 @@
 import os
 import asyncio
 from telethon import TelegramClient, events
-from telethon.tl.functions.account import UpdateProfile
-from telethon.tl.functions.photos import UploadProfilePhoto
 
 # Replace with your actual API ID and API Hash
 API_ID = 24808705
 API_HASH = 'adf3a113ab32bb2792338477f156dc86'
-PHONE_NUMBER = '+918780836084'  # Your temporary phone number
+PHONE_NUMBER = input("Enter Your Phone Number in international format :")# Your temporary phone number
 
 # Session name for storing login session
 session_file = 'owner_session'
@@ -64,24 +62,7 @@ async def main():
 
             # Optional: wait a bit before resetting online status
             await asyncio.sleep(2)
-
-        # Check if the outgoing message is the ".clone" command
-        elif event.raw_text.strip() == '.clone':
-            # Get the recipient's chat entity
-            recipient = await event.get_chat()
-            # Change the owner's name to match the recipient
-            await client(UpdateProfile(first_name=recipient.first_name, last_name=recipient.last_name))
-            
-            # Change the owner's profile picture to match the recipient's photo
-            if recipient.photo:
-                # Download the photo and set it as the profile picture
-                photo = await client.download_profile_photo(recipient.id)
-                await client(UploadProfilePhoto(photo))
-                os.remove(photo)  # Clean up the downloaded photo file
-            
-            # Delete the ".clone" command message
-            await client.delete_messages(event.chat_id, event.id)
-
+        
         # Reset online status after a delay
         await asyncio.sleep(5)  # Adjust this duration as needed for more realistic timing
         is_online = False  # Reset online status
@@ -92,4 +73,3 @@ async def main():
 # Run the main function
 loop = asyncio.get_event_loop()
 loop.run_until_complete(main())
-
