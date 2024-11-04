@@ -5,37 +5,59 @@ from telethon import TelegramClient, events
 # Replace with your actual API ID and API Hash
 API_ID = 24808705
 API_HASH = 'adf3a113ab32bb2792338477f156dc86'
+BOT_TOKEN = '8015052876:AAEi65xgC7XzKRcn9hKGBY48wDlFrUDQuUY'  # Replace with your bot token
 
-# Session name for storing login session
+# Session name for storing login session (not needed for bot)
 session_file = 'owner_session'
 
-# Create the Telegram client
-client = TelegramClient(session_file, API_ID, API_HASH)
+# Create the Telegram client for the bot
+client = TelegramClient(session_file, API_ID, API_HASH).start(bot_token=BOT_TOKEN)
 
 # Variable to track if the owner is online
 is_online = False
+login_state = False  # To track if login process is ongoing
 
-async def main():
-    global is_online
+async def send_message(chat_id, message):
+    """ Helper function to send a message. """
+    await client.send_message(chat_id, message)
+
+async def prompt_for_phone_number(event):
+    """ Prompt for phone number and handle response. """
+    await send_message(event.chat_id, "Please enter your phone number:")
     
-    # Prompt the owner for their phone number
-    PHONE_NUMBER = input("Enter your phone number: ")
+    @client.on(events.NewMessage(incoming=True, from_users=event.sender_id))
+    async def handle_phone_number_response(phone_event):
+        global login_state
+        phone_number = phone_event.raw_text.strip()
+        await send_message(event.chat_id, "Please enter the OTP sent to your Telegram app:")
+        login_state = True  # Mark login process as ongoing
 
+        @client.on(events.NewMessage(incoming=True, from_users=event.sender_id))
+        async def handle_otp_response(otp_event):
+            if login_state:
+                otp = otp_event.raw_text.strip()
+                await handle_login(phone_number, otp, event.chat_id)
+                login_state = False  # Reset login state
+
+async def handle_login(phone_number, otp, chat_id):
+    """ Handle the login process. """
     # Start the client with the phone number
-    await client.start(phone=PHONE_NUMBER)
+    await client.start(phone=phone_number)
 
-    # Wait for the client to be logged in
-    await client.connect()
     if not await client.is_user_authorized():
-        # If not authorized, ask for the OTP
-        OTP = input("Please enter the OTP sent to your Telegram app: ")
-        await client.sign_in(phone=PHONE_NUMBER, code=OTP)
+        await client.sign_in(phone=phone_number, code=otp)
 
-    print("Logged in successfully.")
+    await send_message(chat_id, "Logged in successfully.")
 
     # Access the owner's profile
     me = await client.get_me()
-    print("Owner's Profile:", me.stringify())
+    await send_message(chat_id, f"Owner's Profile: {me.stringify()}")
+
+@client.on(events.NewMessage(incoming=True))
+async def handle_commands(event):
+    """ Handle commands from the owner. """
+    if event.raw_text.startswith('/start'):
+        await prompt_for_phone_number(event)
 
     # Event to handle incoming private messages
     @client.on(events.NewMessage(incoming=True))
@@ -75,6 +97,7 @@ async def main():
             await asyncio.sleep(2)
             is_online = False  # Reset online status
 
+async def main():
     print("Bot is running and listening for messages...")
     await client.run_until_disconnected()  # Run the main function
 
