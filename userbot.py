@@ -5,7 +5,7 @@ from telethon import TelegramClient, events
 # Replace with your actual API ID and API Hash
 API_ID = 24808705
 API_HASH = 'adf3a113ab32bb2792338477f156dc86'
-PHONE_NUMBER = input("Enter Your Phone Number in international format :")# Your temporary phone number
+PHONE_NUMBER = '+918780836084'  # Your temporary phone number
 
 # Session name for storing login session
 session_file = 'owner_session'
