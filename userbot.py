@@ -1,8 +1,11 @@
 import os
 import random
 import asyncio
-import requests
+import logging
 from telethon import TelegramClient, events, functions, types
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
 
 # Replace with your actual credentials
 API_ID = 24808705
@@ -43,7 +46,7 @@ async def main():
     if photos:
         original_profile_photo = photos[0]
 
-    print("Bot is running...")
+    logging.info("Bot is running...")
 
     # Auto-reply when offline
     @client.on(events.NewMessage(incoming=True))
@@ -58,6 +61,7 @@ async def main():
         # Check if the message is private and not from the owner
         if event.is_private and sender.id != OWNER_ID:
             if not is_owner_online:
+                logging.info(f"Owner is offline. Sending offline message to {sender.id}.")
                 offline_message = await event.reply(
                     f"<b>{owner_name} is Offline,</b> He will reply as soon as 💯.", 
                     parse_mode='html'
@@ -75,11 +79,12 @@ async def main():
         if isinstance(user_status, (types.UserStatusOnline, types.UserStatusEmpty)):
             if not is_owner_online:  # If changing from offline to online
                 is_owner_online = True
-                # Notify users that the owner is now online
+                logging.info("Owner is now online.")
                 await client.send_message(OWNER_ID, "Owner is now online. Ask me anything!")
         else:
             if is_owner_online:  # If changing from online to offline
                 is_owner_online = False
+                logging.info("Owner is now offline.")
 
     # Outgoing message commands
     @client.on(events.NewMessage(outgoing=True))
@@ -184,3 +189,4 @@ async def main():
     await client.run_until_disconnected()
 
 asyncio.run(main())
+                
