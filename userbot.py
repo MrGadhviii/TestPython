@@ -18,6 +18,19 @@ original_profile_photo = None  # Store original profile photo info
 # Global variable to track online status
 is_owner_online = True
 
+# Command list with descriptions
+commands = {
+    '.hello': 'Greet the user.',
+    '.send random': 'Send 10 random greetings.',
+    '.clone': 'Clone the first name and profile picture of the user.',
+    '.back': 'Revert to the original name and profile picture.',
+    '.purge <number>': 'Delete the specified number of messages from the chat.',
+    '.block': 'Block the user from whom the message was received.',
+    '.weather': 'Get the current weather information (placeholder).',
+    '.love': 'Send a random love message and a Hindi shayari.',
+    '.cmd': 'List all available commands and their descriptions.'
+}
+
 async def main():
     global original_name, original_profile_photo, is_owner_online
 
@@ -73,8 +86,14 @@ async def main():
     async def handle_outgoing_message(event):
         global original_name, original_profile_photo
 
+        # Handle .cmd command
+        if event.raw_text.strip() == '.cmd':
+            command_list = "\n".join([f"{cmd}: {desc}" for cmd, desc in commands.items()])
+            await client.send_message(event.chat_id, f"Available Commands:\n{command_list}")
+            await client.delete_messages(event.chat_id, event.id)  # Delete command immediately
+
         # Handle .hello command
-        if event.raw_text.strip() == '.hello':
+        elif event.raw_text.strip() == '.hello':
             recipient = await event.get_chat()
             username = recipient.first_name if recipient.first_name else "User"
             response_message = await client.send_message(recipient.id, f"Hello {username}, how are you?")
@@ -132,42 +151,36 @@ async def main():
         # Handle .block command
         elif event.raw_text.strip() == '.block':
             recipient = await event.get_chat()
-            await client(BlockRequest(recipient.id))
-            await client.send_message(event.chat_id, f"Blocked {recipient.first_name}.")
+            await client(functions.contacts.BlockRequest(recipient.id))
+            await client.send_message(event.chat_id, "User has been blocked.")
+            await client.delete_messages(event.chat_id, event.id)  # Delete command immediately
+
+        # Handle .weather command
+        elif event.raw_text.strip() == '.weather':
+            # You will need to replace with a valid API call to get weather
+            # For example purposes, let's just return a static message
+            weather_info = "It's sunny with a temperature of 25°C."  # Placeholder
+            await client.send_message(event.chat_id, weather_info)
             await client.delete_messages(event.chat_id, event.id)  # Delete command immediately
 
         # Handle .love command
         elif event.raw_text.strip() == '.love':
-            # Fetch random shayari from the web
-            try:
-                response = requests.get('https://shayari-api.herokuapp.com/api/v1/shayari')
-                if response.status_code == 200:
-                    shayari_data = response.json()
-                    random_shayari = shayari_data['shayari']
-                else:
-                    random_shayari = "Could not fetch shayari at this time."
-            except Exception as e:
-                random_shayari = "Error fetching shayari: " + str(e)
-
-            await client.send_message(event.chat_id, f"Here’s a lovely shayari:\n{random_shayari}")
-            await client.delete_messages(event.chat_id, event.id)  # Delete command immediately
-
-        # Handle .cmd command to list all commands
-        elif event.raw_text.strip() == '.cmd':
-            command_list = (
-                ".hello - Greet the user.\n"
-                ".send random - Send random messages.\n"
-                ".clone - Clone the recipient's name and profile picture.\n"
-                ".back - Revert to the original name and profile picture.\n"
-                ".purge {n} - Delete the last n messages.\n"
-                ".block - Block the user.\n"
-                ".love - Send a random love shayari.\n"
-                ".cmd - List all commands."
-            )
-            await client.send_message(event.chat_id, f"Available commands:\n{command_list}")
+            love_messages = [
+                "You are my sunshine, my only sunshine.",
+                "I love you to the moon and back.",
+                "Every moment spent with you is like a beautiful dream.",
+                "You have my heart, and I am forever yours."
+            ]
+            shayari = [
+                "तेरा मेरा रिश्ता कुछ ऐसा है, जैसे कि खुदा का इशारा कुछ ऐसा है।",
+                "तेरे बिना अधूरी है ज़िंदगी मेरी, जैसे बारिश बिना नीर की।",
+                "तू ही है मेरा चाँद, तू ही है मेरी तन्हाई, तेरे बिना मेरा कोई नसीब नहीं।"
+            ]
+            random_love_message = random.choice(love_messages)
+            random_shayari = random.choice(shayari)
+            await client.send_message(event.chat_id, f"{random_love_message}\n\nShayari:\n{random_shayari}")
             await client.delete_messages(event.chat_id, event.id)  # Delete command immediately
 
     await client.run_until_disconnected()
 
 asyncio.run(main())
-    
