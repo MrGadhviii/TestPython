@@ -69,23 +69,6 @@ async def main():
                 await asyncio.sleep(10)
                 await client.delete_messages(event.chat_id, offline_message.id)
 
-    # Monitor the owner's status
-    @client.on(events.UserUpdate(OWNER_ID))
-    async def check_owner_status(event):
-        global is_owner_online
-        user_status = event.status
-
-        # Check if the owner is online or offline
-        if isinstance(user_status, (types.UserStatusOnline, types.UserStatusEmpty)):
-            if not is_owner_online:  # If changing from offline to online
-                is_owner_online = True
-                logging.info("Owner is now online.")
-                await client.send_message(OWNER_ID, "Owner is now online. Ask me anything!")
-        else:
-            if is_owner_online:  # If changing from online to offline
-                is_owner_online = False
-                logging.info("Owner is now offline.")
-
     # Outgoing message commands
     @client.on(events.NewMessage(outgoing=True))
     async def handle_outgoing_message(event):
@@ -142,51 +125,36 @@ async def main():
                 await client(functions.photos.UploadProfilePhotoRequest(original_profile_photo))
             await client.delete_messages(event.chat_id, event.id)  # Delete command immediately
 
-        # Handle .purge command
-        elif event.raw_text.startswith('.purge '):
-            try:
-                count = int(event.raw_text.split(' ')[1])
-                async for message in client.iter_messages(event.chat_id, limit=count):
-                    await client.delete_messages(event.chat_id, message.id)
-                await client.send_message(event.chat_id, f"Deleted {count} messages.")
-            except ValueError:
-                await client.send_message(event.chat_id, "Please specify a valid number of messages to delete.")
-            await client.delete_messages(event.chat_id, event.id)  # Delete command immediately
-
-        # Handle .block command
-        elif event.raw_text.strip() == '.block':
-            recipient = await event.get_chat()
-            await client(functions.contacts.BlockRequest(recipient.id))
-            await client.send_message(event.chat_id, "User has been blocked.")
-            await client.delete_messages(event.chat_id, event.id)  # Delete command immediately
-
-        # Handle .weather command
-        elif event.raw_text.strip() == '.weather':
-            # You will need to replace with a valid API call to get weather
-            # For example purposes, let's just return a static message
-            weather_info = "It's sunny with a temperature of 25°C."  # Placeholder
-            await client.send_message(event.chat_id, weather_info)
-            await client.delete_messages(event.chat_id, event.id)  # Delete command immediately
-
-        # Handle .love command
-        elif event.raw_text.strip() == '.love':
-            love_messages = [
-                "You are my sunshine, my only sunshine.",
-                "I love you to the moon and back.",
-                "Every moment spent with you is like a beautiful dream.",
-                "You have my heart, and I am forever yours."
-            ]
-            shayari = [
-                "तेरा मेरा रिश्ता कुछ ऐसा है, जैसे कि खुदा का इशारा कुछ ऐसा है।",
-                "तेरे बिना अधूरी है ज़िंदगी मेरी, जैसे बारिश बिना नीर की।",
-                "तू ही है मेरा चाँद, तू ही है मेरी तन्हाई, तेरे बिना मेरा कोई नसीब नहीं।"
-            ]
-            random_love_message = random.choice(love_messages)
-            random_shayari = random.choice(shayari)
-            await client.send_message(event.chat_id, f"{random_love_message}\n\nShayari:\n{random_shayari}")
-            await client.delete_messages(event.chat_id, event.id)  # Delete command immediately
-
     await client.run_until_disconnected()
 
-asyncio.run(main())
-                
+# Function to reconnect if disconnected
+async def start_bot():
+    while True:
+        try:
+            await main()
+        except Exception as e:
+            logging.error(f"Connection lost: {e}. Reconnecting in 5 seconds...")
+            await asyncio.sleep(5)  # Reconnect after a short delay
+
+# Polling to check owner status
+async def check_owner_status_periodically():
+    global is_owner_online
+    while True:
+        try:
+            user = await client.get_entity(OWNER_ID)
+            user_status = user.status
+            if isinstance(user_status, (types.UserStatusOnline, types.UserStatusEmpty)):
+                if not is_owner_online:
+                    is_owner_online = True
+                    logging.info("Owner is now online.")
+                    await client.send_message(OWNER_ID, "Owner is now online. Ask me anything!")
+            else:
+                if is_owner_online:
+                    is_owner_online = False
+                    logging.info("Owner is now offline.")
+        except Exception as e:
+            logging.error(f"Error checking status: {e}")
+        await asyncio.sleep(60)  # Check status every 60 seconds
+
+# Start the bot and status checker
+asyncio.gather(start_bot(), check_owner_status_periodically())
